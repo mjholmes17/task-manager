@@ -235,6 +235,56 @@
         .filters button.active { background: rgba(167,139,250,0.2); color: #c4b5fd; }
         .task-count { font-size: 0.82rem; color: #666680; }
 
+        /* Search & filter bar */
+        .search-bar {
+            display: flex; gap: 0.6rem; margin-bottom: 1rem;
+            flex-wrap: wrap; align-items: center;
+        }
+        .search-bar input[type="search"] {
+            flex: 1; min-width: 160px; padding: 0.55rem 0.9rem;
+            border: 1.5px solid rgba(255,255,255,0.1); border-radius: 10px;
+            font-size: 0.85rem; font-family: inherit;
+            background: rgba(255,255,255,0.05); color: #e0e0e0;
+            transition: all 0.2s;
+        }
+        .search-bar input[type="search"]::placeholder { color: #666680; }
+        .search-bar input[type="search"]:focus {
+            outline: none; border-color: #a78bfa;
+            box-shadow: 0 0 0 3px rgba(167,139,250,0.15);
+        }
+        .search-bar input[type="search"]::-webkit-search-cancel-button {
+            filter: invert(0.7); cursor: pointer;
+        }
+        .search-bar select {
+            padding: 0.55rem 0.75rem; padding-right: 1.7rem;
+            border: 1.5px solid rgba(255,255,255,0.1); border-radius: 10px;
+            font-size: 0.82rem; font-family: inherit;
+            background: rgba(255,255,255,0.05); color: #e0e0e0;
+            cursor: pointer; appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23888' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 0.5rem center;
+            transition: all 0.2s;
+        }
+        .search-bar select:focus {
+            outline: none; border-color: #a78bfa;
+            box-shadow: 0 0 0 3px rgba(167,139,250,0.15);
+        }
+        .search-bar select option { background: #2a2850; color: #e0e0e0; }
+        .active-filters {
+            display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.75rem;
+        }
+        .filter-tag {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 3px 10px; border-radius: 6px; font-size: 0.75rem;
+            font-weight: 500; background: rgba(167,139,250,0.15); color: #c4b5fd;
+            cursor: default;
+        }
+        .filter-tag button {
+            background: none; border: none; color: inherit; cursor: pointer;
+            font-size: 0.85rem; line-height: 1; opacity: 0.6; padding: 0 0 0 2px;
+        }
+        .filter-tag button:hover { opacity: 1; }
+
         /* Progress bar */
         .progress-bar { width: 100%; height: 3px; background: rgba(255,255,255,0.06); border-radius: 3px; margin-bottom: 1.5rem; overflow: hidden; }
         .progress-fill { height: 100%; background: linear-gradient(90deg, #a78bfa, #34d399); border-radius: 3px; transition: width 0.4s ease; }
@@ -364,6 +414,24 @@
 
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
 
+    <!-- Search & Filter -->
+    <div class="search-bar">
+        <input type="search" id="searchInput" placeholder="Search tasks...">
+        <select id="filterProject">
+            <option value="">All Projects</option>
+        </select>
+        <select id="filterOwner">
+            <option value="">All Members</option>
+        </select>
+        <select id="sortBy">
+            <option value="newest">Newest First</option>
+            <option value="deadline-asc">Deadline (Soonest)</option>
+            <option value="deadline-desc">Deadline (Latest)</option>
+            <option value="priority">Priority (High First)</option>
+        </select>
+    </div>
+    <div class="active-filters" id="activeFilters"></div>
+
     <div class="toolbar">
         <div class="filters">
             <button class="active" data-filter="all">All</button>
@@ -395,6 +463,9 @@
     let members = JSON.parse(localStorage.getItem(MEMBERS_KEY)) || [];
     let currentFilter = 'all';
     let currentProject = '';
+    let currentOwner = '';
+    let searchQuery = '';
+    let sortBy = 'newest';
 
     const PRIORITY_LABELS = { high: 'High', medium: 'Medium', low: 'Low' };
 
@@ -406,6 +477,7 @@
     const taskList = $('taskList'), taskCount = $('taskCount'), progressFill = $('progressFill');
     const filterButtons = document.querySelectorAll('.filters button');
     const dashTotal = $('dashTotal'), dashDone = $('dashDone'), dashWeek = $('dashWeek'), dashOverdue = $('dashOverdue');
+    const searchInput = $('searchInput'), filterProjectEl = $('filterProject'), filterOwnerEl = $('filterOwner'), sortByEl = $('sortBy'), activeFiltersEl = $('activeFilters');
 
     function saveTasks() { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)); }
     function saveProjects() { localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects)); }
@@ -530,13 +602,72 @@
             }).join('');
     }
 
+    // Filter bar dropdowns
+    function renderFilterDropdowns() {
+        const curP = filterProjectEl.value;
+        filterProjectEl.innerHTML = '<option value="">All Projects</option>' +
+            projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+        filterProjectEl.value = curP;
+
+        const curM = filterOwnerEl.value;
+        filterOwnerEl.innerHTML = '<option value="">All Members</option>' +
+            members.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('');
+        filterOwnerEl.value = curM;
+    }
+
+    function renderActiveFilters() {
+        const tags = [];
+        if (searchQuery) tags.push({ label: `Search: "${searchQuery}"`, clear: () => { searchQuery = ''; searchInput.value = ''; } });
+        if (currentProject) {
+            const p = getProject(currentProject);
+            if (p) tags.push({ label: `Project: ${p.name}`, clear: () => { currentProject = ''; filterProjectEl.value = ''; } });
+        }
+        if (currentOwner) {
+            const m = getMember(currentOwner);
+            if (m) tags.push({ label: `Owner: ${m.name}`, clear: () => { currentOwner = ''; filterOwnerEl.value = ''; } });
+        }
+        if (sortBy !== 'newest') {
+            const labels = { 'deadline-asc': 'Deadline (Soonest)', 'deadline-desc': 'Deadline (Latest)', 'priority': 'Priority (High First)' };
+            tags.push({ label: `Sort: ${labels[sortBy]}`, clear: () => { sortBy = 'newest'; sortByEl.value = 'newest'; } });
+        }
+        activeFiltersEl.innerHTML = tags.map((t, i) =>
+            `<span class="filter-tag">${escapeHtml(t.label)}<button onclick="clearFilter(${i})">&times;</button></span>`
+        ).join('');
+        // stash for clearing
+        activeFiltersEl._tags = tags;
+    }
+
+    function clearFilter(i) {
+        const tags = activeFiltersEl._tags;
+        if (tags && tags[i]) { tags[i].clear(); renderAll(); }
+    }
+
+    function sortTasks(list) {
+        const PRIO_ORDER = { high: 0, medium: 1, low: 2 };
+        return [...list].sort((a, b) => {
+            if (sortBy === 'newest') return 0; // keep insertion order
+            if (sortBy === 'priority') return (PRIO_ORDER[a.priority || 'medium'] - PRIO_ORDER[b.priority || 'medium']);
+            if (sortBy === 'deadline-asc' || sortBy === 'deadline-desc') {
+                const aDate = a.dueDate || '9999-12-31';
+                const bDate = b.dueDate || '9999-12-31';
+                return sortBy === 'deadline-asc' ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
+            }
+            return 0;
+        });
+    }
+
     // Task list
     function render() {
+        const query = searchQuery.toLowerCase();
         const filtered = tasks.filter(t => {
             const statusOk = currentFilter === 'all' || (currentFilter === 'active' ? !t.completed : t.completed);
             const projOk = currentProject === '' || t.project === currentProject;
-            return statusOk && projOk;
+            const ownerOk = currentOwner === '' || t.assignee === currentOwner;
+            const searchOk = !query || t.title.toLowerCase().includes(query) || (t.description && t.description.toLowerCase().includes(query));
+            return statusOk && projOk && ownerOk && searchOk;
         });
+
+        const sorted = sortTasks(filtered);
 
         const relevant = currentProject === '' ? tasks : tasks.filter(t => t.project === currentProject);
         const total = relevant.length;
@@ -544,15 +675,17 @@
         const pct = total === 0 ? 0 : (doneCount / total) * 100;
 
         progressFill.style.width = pct + '%';
-        taskCount.textContent = total === 0 ? 'No tasks yet' : `${doneCount}/${total} completed`;
+        const showing = sorted.length !== tasks.length ? ` (showing ${sorted.length})` : '';
+        taskCount.textContent = total === 0 ? 'No tasks yet' : `${doneCount}/${total} completed${showing}`;
 
-        if (filtered.length === 0) {
+        if (sorted.length === 0) {
             const label = currentFilter === 'all' ? '' : currentFilter === 'active' ? 'active ' : 'completed ';
-            taskList.innerHTML = `<div class="empty-state"><div class="empty-icon">${currentFilter === 'completed' ? '&#9745;' : '&#9744;'}</div>No ${label}tasks${currentProject ? ' in this project' : ''}</div>`;
+            const extra = query ? ' matching your search' : currentProject ? ' in this project' : '';
+            taskList.innerHTML = `<div class="empty-state"><div class="empty-icon">${currentFilter === 'completed' ? '&#9745;' : '&#9744;'}</div>No ${label}tasks${extra}</div>`;
             return;
         }
 
-        taskList.innerHTML = filtered.map(task => {
+        taskList.innerHTML = sorted.map(task => {
             const proj = task.project ? getProject(task.project) : null;
             const member = task.assignee ? getMember(task.assignee) : null;
             const borderStyle = proj ? `border-left-color:${proj.color}` : '';
@@ -584,6 +717,8 @@
         renderProjectChips();
         renderMemberSelect();
         renderMemberChips();
+        renderFilterDropdowns();
+        renderActiveFilters();
         render();
     }
 
@@ -642,7 +777,7 @@
         if (currentProject === id) currentProject = '';
         saveProjects(); saveTasks(); renderAll();
     }
-    function filterByProject(id) { currentProject = id; renderAll(); }
+    function filterByProject(id) { currentProject = id; filterProjectEl.value = id; renderAll(); }
 
     // Member actions
     function addMember() {
@@ -659,6 +794,12 @@
 
     setupInlineForm($('addProjectBtn'), $('addProjectForm'), $('newProjectInput'), $('saveProjectBtn'), $('cancelProjectBtn'), addProject);
     setupInlineForm($('addMemberBtn'), $('addMemberForm'), $('newMemberInput'), $('saveMemberBtn'), $('cancelMemberBtn'), addMember);
+
+    // Search, filter & sort listeners
+    searchInput.addEventListener('input', () => { searchQuery = searchInput.value.trim(); renderActiveFilters(); render(); });
+    filterProjectEl.addEventListener('change', () => { currentProject = filterProjectEl.value; renderAll(); });
+    filterOwnerEl.addEventListener('change', () => { currentOwner = filterOwnerEl.value; renderActiveFilters(); render(); });
+    sortByEl.addEventListener('change', () => { sortBy = sortByEl.value; renderActiveFilters(); render(); });
 
     filterButtons.forEach(btn => {
         btn.addEventListener('click', () => {
